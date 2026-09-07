@@ -1,0 +1,46 @@
+{
+  "name": "skillbelt",
+  "version": "1.0.0",
+  "description": "Portable agent skills for secure coding and translation parity. Works in Claude Code, Codex, Cursor, Gemini CLI and Antigravity.",
+  "type": "module",
+  "bin": {
+    "skillbelt": "bin/skillbelt.mjs"
+  },
+  "files": [
+    "bin",
+    "skills",
+    ".claude-plugin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "validate": "node scripts/validate-skills.mjs",
+    "test": "node scripts/validate-skills.mjs && node --test scripts/test-parity.mjs"
+  },
+  "keywords": [
+    "agent-skills",
+    "skill-md",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "security",
+    "laravel",
+    "nextjs",
+    "i18n",
+    "code-review"
+  ],
+  "author": "Christ-loisele Atidegla",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/catidegla/skillbelt.git"
+  },
+  "homepage": "https://github.com/catidegla/skillbelt#readme",
+  "bugs": {
+    "url": "https://github.com/catidegla/skillbelt/issues"
+  }
+}
