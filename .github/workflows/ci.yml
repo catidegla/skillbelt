@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Validate skills
+        run: node scripts/validate-skills.mjs
+
+      - name: Test the parity checker
+        run: node --test scripts/test-parity.mjs
+
+      # The installer resolves home directories and joins paths differently on
+      # Windows, which is exactly the thing that breaks without being noticed.
+      - name: Smoke test the installer
+        shell: bash
+        run: |
+          node bin/skillbelt.mjs list
+          node bin/skillbelt.mjs doctor
+
+          mkdir -p "$RUNNER_TEMP/scratch"
+          cd "$RUNNER_TEMP/scratch"
+          node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" add --all --project --harness claude,codex,cursor,gemini
+
+          for h in .claude .codex .cursor .gemini; do
+            test -f "$h/skills/i18n-parity/SKILL.md" || { echo "missing SKILL.md in $h"; exit 1; }
+            test -f "$h/skills/i18n-parity/scripts/check-parity.mjs" || { echo "missing nested script in $h"; exit 1; }
+          done
+          echo "installed into all four harnesses"
+
+          node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" remove --all --project --harness claude
+          test ! -d ".claude/skills/i18n-parity" || { echo "remove did not clean up"; exit 1; }
+          echo "remove works"
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Plugin manifests are valid JSON
+        run: |
+          node -e "
+            for (const f of ['.claude-plugin/marketplace.json', '.claude-plugin/plugin.json', 'package.json']) {
+              JSON.parse(require('fs').readFileSync(f, 'utf8'));
+              console.log(f + ' ok');
+            }
+          "
+
+      - name: Marketplace and plugin agree
+        run: |
+          node -e "
+            const fs = require('fs');
+            const market = JSON.parse(fs.readFileSync('.claude-plugin/marketplace.json', 'utf8'));
+            const plugin = JSON.parse(fs.readFileSync('.claude-plugin/plugin.json', 'utf8'));
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const entry = market.plugins.find(p => p.name === plugin.name);
+            if (!entry) throw new Error('plugin.json name is not listed in marketplace.json');
+            if (entry.version !== plugin.version) throw new Error('version mismatch between marketplace and plugin manifest');
+            if (pkg.version !== plugin.version) throw new Error('package.json version does not match plugin.json');
+            console.log('manifests agree on version ' + plugin.version);
+          "

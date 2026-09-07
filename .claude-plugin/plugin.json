@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "skillbelt",
+  "version": "1.0.0",
+  "description": "Four skills for reviewing Laravel and Next.js code for security defects, auditing committed secrets including git history, and keeping English and French translation files in parity.",
+  "author": {
+    "name": "Christ-loisele Atidegla",
+    "url": "https://github.com/catidegla"
+  },
+  "homepage": "https://github.com/catidegla/skillbelt",
+  "repository": "https://github.com/catidegla/skillbelt",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "laravel",
+    "nextjs",
+    "i18n",
+    "localization",
+    "code-review",
+    "secrets",
+    "owasp"
+  ]
+}
