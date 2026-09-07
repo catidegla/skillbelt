@@ -16,7 +16,10 @@ const SKILLS = join(ROOT, 'skills');
 const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const DESCRIPTION_MIN = 40;
 const DESCRIPTION_MAX = 1024;
-const EM_DASH = '—';
+// Skills are read in terminals and piped through tools with inconsistent
+// encoding handling. Windows consoles in particular mangle these to mojibake,
+// so keep punctuation to ASCII.
+const SMART_PUNCTUATION = /[–—‘’“”…]/;
 
 const errors = [];
 const warnings = [];
@@ -93,7 +96,8 @@ for (const dir of dirs) {
 
   const body = source.slice(source.indexOf('---', 3) + 3);
   if (!body.trim()) errors.push(`${label} has frontmatter but no body`);
-  if (source.includes(EM_DASH)) errors.push(`${label} contains an em dash`);
+  const smart = source.match(SMART_PUNCTUATION);
+  if (smart) errors.push(`${label} contains non-ASCII punctuation (${JSON.stringify(smart[0])}), use the ASCII equivalent`);
 
   // Any references/ or scripts/ path named in the body must actually exist.
   for (const [, ref] of body.matchAll(/`((?:references|scripts)\/[A-Za-z0-9._-]+)`/g)) {

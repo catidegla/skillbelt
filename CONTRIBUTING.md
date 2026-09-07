@@ -39,7 +39,7 @@ The second lists the artifacts a user would be looking at and the words they wou
 - Show vulnerable code and fixed code side by side. Short and real.
 - Say what to do with the output. A review skill that does not define its reporting format produces inconsistent reviews.
 - Tell the agent when *not* to flag something. False positives are what makes people uninstall a security skill.
-- No em dashes. The validator rejects them.
+- Keep punctuation ASCII. Em dashes, curly quotes and ellipsis characters turn into mojibake in Windows consoles and in anything that assumes latin-1, and these files are read in terminals. The validator rejects them.
 
 ## Before opening a pull request
 
