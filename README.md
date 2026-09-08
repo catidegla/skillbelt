@@ -19,6 +19,8 @@ Agent skills are just directories with a `SKILL.md` in them, and since late 2025
 
 So this is two things: four skills worth having, and a small installer that puts them wherever they need to go.
 
+The installer half is not a novel idea and it would be odd to pretend otherwise. [`agent-install`](https://www.npmjs.com/package/agent-install) does the same job and also handles MCP servers and `AGENTS.md`, and the [`skills`](https://www.npmjs.com/package/skills) package is building a general registry for the format. If you want a package manager for skills, use one of those. What is here is a curated set of four that are maintained together and validated as a suite, with installation attached because the skills are useless sitting in a repository. Checked on npm on 8 September 2026.
+
 ## Install
 
 ```bash
