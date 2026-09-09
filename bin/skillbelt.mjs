@@ -135,7 +135,15 @@ async function detect() {
   return found;
 }
 
-async function resolveTargets() {
+/**
+ * Where skills should be installed to, or read from.
+ *
+ * `required` exists because not every caller needs one. Installing without a
+ * harness is pointless and should stop, but running a skill from this package
+ * is perfectly reasonable on a machine with no harness at all, and exiting
+ * there would be refusing to do something that works.
+ */
+async function resolveTargets({ required = true } = {}) {
   const requested = value('harness');
   const project = has('project');
 
@@ -143,6 +151,7 @@ async function resolveTargets() {
   if (!requested || requested === 'all') {
     keys = requested === 'all' ? Object.keys(HARNESSES) : await detect();
     if (!keys.length) {
+      if (!required) return [];
       console.error(c.red('No agent harness detected on this machine.'));
       console.error('Pass one explicitly, for example --harness claude, or --harness all.');
       process.exit(1);
@@ -426,8 +435,9 @@ async function cmdRun() {
 
   // Prefer an installed copy. If the agent is reading one, that is the code
   // that matters, and running a different one would make the report a lie.
+  // Finding none is fine, the copy in this package is a perfectly good answer.
   let skillDir = skill.path;
-  for (const target of await resolveTargets().catch(() => [])) {
+  for (const target of await resolveTargets({ required: false })) {
     const candidate = join(target.dir, id);
     if (await exists(join(candidate, skill.entry))) {
       skillDir = candidate;
