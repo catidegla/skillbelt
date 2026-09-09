@@ -2,7 +2,7 @@
 
 # skillbelt
 
-**Portable agent skills for secure coding and translation parity.**
+Portable agent skills for secure coding and translation parity.
 
 Works in Claude Code, Codex, Cursor, Gemini CLI and Antigravity. Same files, one install command.
 
