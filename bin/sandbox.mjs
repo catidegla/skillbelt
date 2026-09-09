@@ -131,25 +131,48 @@ export function unenforceable(declaration, available = support()) {
   return gaps;
 }
 
-export function run(declaration, options) {
-  const available = support();
+/**
+ * The exit code run uses when it declined to start.
+ *
+ * A caller has to tell "the skill found problems" apart from "I would not run
+ * it", and both are failures, so the difference cannot live in the exit status
+ * unless it has a number of its own. Scripts keep their own codes. This one is
+ * reserved by the runner and documented, which also means CI can branch on it
+ * instead of grepping an error message that may be reworded later.
+ */
+export const REFUSED = 3;
+
+const refuse = (message) => Object.assign(new Error(message), { code: REFUSED });
+
+/**
+ * Async so that every failure arrives the same way.
+ *
+ * The refusals below are decided before anything is spawned, so a synchronous
+ * throw would be natural, and it would also mean this function threw sometimes
+ * and rejected other times. A caller cannot handle both with one try, so the
+ * mixed contract is a trap even though nothing here awaits.
+ */
+export async function run(declaration, options) {
+  // options.available is a test seam. The CLI never passes it, so the only
+  // thing that ever answers this question in real use is the running binary.
+  const available = options.available ?? support();
 
   if (!available.permission) {
-    throw new Error(
+    throw refuse(
       `this Node (${process.version}) has no --permission flag, so nothing can be enforced.\n` +
         'Upgrade Node, or run the script directly if you accept that it is unrestricted.',
     );
   }
 
   if (declaration.net && !available.net) {
-    throw new Error(`this Node (${process.version}) has no --allow-net, and the skill needs the network`);
+    throw refuse(`this Node (${process.version}) has no --allow-net, and the skill needs the network`);
   }
 
   // Refuse rather than run something the banner would misdescribe. A sandbox
   // that silently is not one teaches people to trust the next banner too.
   const gaps = unenforceable(declaration, available);
   if (gaps.length && !options.allowUnenforced) {
-    throw new Error(
+    throw refuse(
       `this Node (${process.version}) cannot enforce ${gaps.join(' or ')}.\n` +
         'Upgrade to a Node whose permission model covers it, or pass --allow-unenforced\n' +
         'to run anyway, knowing that limit will not hold.',

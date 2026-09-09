@@ -87,12 +87,15 @@ jobs:
           set -e
           echo "$out"
 
-          if echo "$out" | grep -q "cannot enforce"; then
-            echo "run correctly refused on a runtime whose permission model is incomplete"
+          # 3 is the code run reserves for declining to start, which happens
+          # on a runtime whose permission model cannot enforce what the
+          # manifest denies. Branch on that rather than on message text.
+          if [ "$code" = "3" ]; then
+            echo "run declined on a runtime that cannot enforce the declaration"
           elif [ "$code" = "1" ] && echo "$out" | grep -q "missing"; then
             echo "sandboxed run works and reports through its exit code"
           else
-            echo "run neither refused nor reported the missing key (exit $code)"
+            echo "run neither declined nor reported the missing key (exit $code)"
             exit 1
           fi
 

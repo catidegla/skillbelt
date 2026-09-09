@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 
 import { digestDirectory, short } from './digest.mjs';
 import { readLock, readReceipts, writeReceipts, LOCK_FILE, RECEIPT_FILE } from './lockfile.mjs';
-import { declarationOf, describe, run as runSandboxed, support, unenforceable } from './sandbox.mjs';
+import { declarationOf, describe, run as runSandboxed, support, unenforceable, REFUSED } from './sandbox.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS_DIR = join(ROOT, 'skills');
@@ -462,7 +462,7 @@ async function cmdRun() {
     process.exit(code);
   } catch (error) {
     console.error(c.red(error.message));
-    process.exit(1);
+    process.exit(error.code === REFUSED ? REFUSED : 1);
   }
 }
 

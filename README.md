@@ -214,6 +214,8 @@ to run anyway, knowing that limit will not hold.
 
 That is the whole reason the check exists. A sandbox that silently is not one is worse than no sandbox, so the banner never prints a limit the runtime is not applying.
 
+`run` exits **3** when it declines to start, which is how a script tells that apart from the skill having found problems. Both are failures and they mean opposite things.
+
 ## Contributing
 
 New skills are welcome. `node scripts/validate-skills.mjs` enforces the rules: frontmatter `name` matching the directory, a `description` that says *when* to use the skill rather than only what it is, and every `references/` or `scripts/` path mentioned in the body actually existing.

@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { declarationOf, buildArgs, describe, support, unenforceable } from '../bin/sandbox.mjs';
+import { declarationOf, buildArgs, describe, support, unenforceable, run, REFUSED } from '../bin/sandbox.mjs';
 import { detect, reconcile, stripComments } from '../bin/capabilities.mjs';
 
 const AVAILABLE = support();
@@ -185,4 +185,30 @@ test('a denial this Node cannot enforce is reported rather than claimed', () => 
   // run() rejects it separately rather than treating it as an unenforced deny.
   const wantsNet = declarationOf({ 'allow-read': 'project', 'allow-net': 'yes' });
   assert.deepEqual(unenforceable(wantsNet, noNet), []);
+});
+
+test('declining to start is reported with its own exit code, not as a script failure', async () => {
+  const deniesNet = declarationOf({ 'allow-read': 'project', 'allow-net': 'no', 'allow-exec': 'no' });
+  const options = { skillDir: '/s', projectDir: '/p', entry: 'e.mjs' };
+
+  await assert.rejects(
+    () => run(deniesNet, { ...options, available: { permission: false, net: false, childProcess: false } }),
+    (e) => e.code === REFUSED && /no --permission flag/.test(e.message),
+  );
+
+  await assert.rejects(
+    () => run(deniesNet, { ...options, available: { permission: true, net: false, childProcess: true } }),
+    (e) => e.code === REFUSED && /cannot enforce allow-net: no/.test(e.message),
+  );
+
+  const wantsNet = declarationOf({ 'allow-read': 'project', 'allow-net': 'yes' });
+  await assert.rejects(
+    () => run(wantsNet, { ...options, available: { permission: true, net: false, childProcess: true } }),
+    (e) => e.code === REFUSED && /needs the network/.test(e.message),
+  );
+
+  // The override is the one way past it, and it has to actually work or nobody
+  // stuck on an older runtime can use the tool at all.
+  const argv = buildArgs(deniesNet, options);
+  assert.ok(!argv.includes('--allow-net'));
 });
