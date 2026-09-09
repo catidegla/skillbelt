@@ -15,10 +15,16 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { declarationOf, buildArgs, describe, support } from '../bin/sandbox.mjs';
+import { declarationOf, buildArgs, describe, support, unenforceable } from '../bin/sandbox.mjs';
 import { detect, reconcile, stripComments } from '../bin/capabilities.mjs';
 
-const CAN_ENFORCE = support().permission;
+const AVAILABLE = support();
+const CAN_ENFORCE = AVAILABLE.permission;
+
+// Printed so a CI log records what this runtime actually covers. The model
+// gained its categories over several releases and the version number does not
+// tell you which are in, so the log is the only place that fact is written down.
+console.log(`# node ${process.version} permission=${AVAILABLE.permission} net=${AVAILABLE.net} child=${AVAILABLE.childProcess}`);
 
 async function skillWith(entrySource) {
   const dir = await mkdtemp(join(tmpdir(), 'skillbelt-sbx-'));
@@ -83,7 +89,7 @@ test('writing is refused when allow-write is none', { skip: !CAN_ENFORCE && 'thi
   await rm(project, { recursive: true, force: true });
 });
 
-test('a child process is refused when allow-exec is no', { skip: !CAN_ENFORCE && 'this Node has no --permission' }, async () => {
+test('a child process is refused when allow-exec is no', { skip: (!CAN_ENFORCE && 'this Node has no --permission') || (!AVAILABLE.childProcess && 'this Node has no --allow-child-process') }, async () => {
   const skill = await skillWith(`
     import { execFileSync } from 'node:child_process';
     try { execFileSync(process.execPath, ['-e', '0']); console.log('EXEC_OK'); }
@@ -98,7 +104,7 @@ test('a child process is refused when allow-exec is no', { skip: !CAN_ENFORCE &&
   await rm(project, { recursive: true, force: true });
 });
 
-test('the network is refused when allow-net is no', { skip: !CAN_ENFORCE && 'this Node has no --permission' }, async () => {
+test('the network is refused when allow-net is no', { skip: (!CAN_ENFORCE && 'this Node has no --permission') || (!AVAILABLE.net && 'this Node has no --allow-net, so the model does not cover network') }, async () => {
   // A raw socket rather than fetch, because it fails without needing the host
   // to resolve, so the test does not depend on the machine being online.
   const skill = await skillWith(`
@@ -160,4 +166,23 @@ test('using an undeclared capability is an error, declaring an unused one is a w
   const unused = reconcile({ exec: false, net: false, write: false, read: true }, declarationOf({ 'allow-read': 'project', 'allow-exec': 'php' }));
   assert.equal(unused.errors.length, 0);
   assert.equal(unused.warnings.length, 1);
+});
+
+test('a denial this Node cannot enforce is reported rather than claimed', () => {
+  const denyAll = declarationOf({ 'allow-read': 'project' });
+
+  const complete = { permission: true, net: true, childProcess: true };
+  assert.deepEqual(unenforceable(denyAll, complete), []);
+  assert.ok(describe(denyAll, complete).some((l) => l === 'net    no'));
+
+  // A runtime whose model has no network category cannot deny the network, so
+  // the banner has to say that instead of printing a limit that does not hold.
+  const noNet = { permission: true, net: false, childProcess: true };
+  assert.deepEqual(unenforceable(denyAll, noNet), ['allow-net: no']);
+  assert.ok(describe(denyAll, noNet).some((l) => l.includes('NOT ENFORCED')));
+
+  // Asking for the network is different: that grant is simply unavailable, and
+  // run() rejects it separately rather than treating it as an unenforced deny.
+  const wantsNet = declarationOf({ 'allow-read': 'project', 'allow-net': 'yes' });
+  assert.deepEqual(unenforceable(wantsNet, noNet), []);
 });

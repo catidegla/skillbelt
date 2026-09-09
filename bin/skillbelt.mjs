@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 
 import { digestDirectory, short } from './digest.mjs';
 import { readLock, readReceipts, writeReceipts, LOCK_FILE, RECEIPT_FILE } from './lockfile.mjs';
-import { declarationOf, describe, run as runSandboxed, support } from './sandbox.mjs';
+import { declarationOf, describe, run as runSandboxed, support, unenforceable } from './sandbox.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS_DIR = join(ROOT, 'skills');
@@ -447,6 +447,7 @@ async function cmdRun() {
       projectDir: process.cwd(),
       entry: skill.entry,
       args: forwarded,
+      allowUnenforced: has('allow-unenforced'),
     });
     process.exit(code);
   } catch (error) {

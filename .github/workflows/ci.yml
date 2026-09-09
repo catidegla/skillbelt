@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: ['20', '22']
+        node: ['20', '22', '24']
 
     steps:
       - uses: actions/checkout@v5
@@ -78,11 +78,23 @@ jobs:
           mkdir -p locales
           printf '{"a":"A","b":"B"}\n' > locales/en.json
           printf '{"a":"A"}\n' > locales/fr.json
-          if node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" run i18n-parity --quiet; then
-            echo "the checker should have reported the missing key"
+          # run refuses on a runtime that cannot enforce what the manifest
+          # denies, so assert on what it said and not only on the exit code.
+          # A refusal and a real finding both exit 1 and mean opposite things.
+          set +e
+          out=$(node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" run i18n-parity --quiet 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+
+          if echo "$out" | grep -q "cannot enforce"; then
+            echo "run correctly refused on a runtime whose permission model is incomplete"
+          elif [ "$code" = "1" ] && echo "$out" | grep -q "missing"; then
+            echo "sandboxed run works and reports through its exit code"
+          else
+            echo "run neither refused nor reported the missing key (exit $code)"
             exit 1
           fi
-          echo "sandboxed run works and reports through its exit code"
 
           node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" remove --all --project --harness claude
           test ! -d ".claude/skills/i18n-parity" || { echo "remove did not clean up"; exit 1; }

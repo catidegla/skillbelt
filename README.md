@@ -204,7 +204,15 @@ skillbelt doctor                  every install path and what is present
   --quiet           with run, do not print the capability banner
 ```
 
-`run` needs Node 22.13 or newer, where the permission model is stable. On anything older it refuses rather than running the script unrestricted, since a sandbox that silently is not one is worse than none.
+`run` asks the running Node what its permission model actually covers rather than trusting a version number, because the model gained its categories over several releases and having `--permission` does not mean having `--allow-net`. If a limit the manifest denies cannot be enforced on your runtime, `run` refuses and says which one:
+
+```
+this Node (v22.x) cannot enforce allow-net: no.
+Upgrade to a Node whose permission model covers it, or pass --allow-unenforced
+to run anyway, knowing that limit will not hold.
+```
+
+That is the whole reason the check exists. A sandbox that silently is not one is worse than no sandbox, so the banner never prints a limit the runtime is not applying.
 
 ## Contributing
 

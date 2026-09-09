@@ -91,29 +91,69 @@ export function buildArgs(declaration, { skillDir, projectDir, entry, args = [] 
   return [...flags, join(skillDir, entry), ...args];
 }
 
-/** A line per capability, in the order a reader cares about. */
-export function describe(declaration) {
+/**
+ * A line per capability, in the order a reader cares about.
+ *
+ * The support argument is not decoration. A denial this Node cannot enforce
+ * must not print as a denial, because the banner is the only thing most people
+ * will read, and a banner that says "net no" over an unrestricted process is
+ * worse than printing nothing at all.
+ */
+export function describe(declaration, available = support()) {
   const lines = [];
   lines.push(`read   ${declaration.read.length ? declaration.read.join(', ') : 'nothing'}`);
   lines.push(`write  ${declaration.write.length ? declaration.write.join(', ') : 'nothing'}`);
-  lines.push(`net    ${declaration.net ? 'yes, unscoped, Node cannot limit it by host' : 'no'}`);
+
+  if (declaration.net) lines.push('net    yes, unscoped, Node cannot limit it by host');
+  else if (available.net) lines.push('net    no');
+  else lines.push(`net    NOT ENFORCED, this Node (${process.version}) has no --allow-net`);
+
   if (declaration.execAll) lines.push('exec   yes, any binary');
   else if (declaration.exec.length) lines.push(`exec   ${declaration.exec.join(', ')}, granted as the whole child process capability`);
-  else lines.push('exec   no');
+  else if (available.childProcess) lines.push('exec   no');
+  else lines.push(`exec   NOT ENFORCED, this Node (${process.version}) has no --allow-child-process`);
+
   return lines;
 }
 
+/**
+ * Everything the manifest denies that this Node cannot actually deny.
+ *
+ * Node's permission model gained its categories over several releases, so a
+ * runtime old enough to have --permission is not necessarily one that covers
+ * network. Asking the running binary is the only reliable check; the version
+ * number does not tell you which categories are in.
+ */
+export function unenforceable(declaration, available = support()) {
+  const gaps = [];
+  if (!declaration.net && !available.net) gaps.push('allow-net: no');
+  if (!declaration.exec.length && !declaration.execAll && !available.childProcess) gaps.push('allow-exec: no');
+  return gaps;
+}
+
 export function run(declaration, options) {
-  const { permission } = support();
-  if (!permission) {
+  const available = support();
+
+  if (!available.permission) {
     throw new Error(
-      `this Node (${process.version}) has no --permission flag, so the declared limits cannot be enforced.\n` +
-        'Node 22.13 or newer is where the permission model is stable. Run the script directly if you accept that.',
+      `this Node (${process.version}) has no --permission flag, so nothing can be enforced.\n` +
+        'Upgrade Node, or run the script directly if you accept that it is unrestricted.',
     );
   }
 
-  if (declaration.net && !support().net) {
+  if (declaration.net && !available.net) {
     throw new Error(`this Node (${process.version}) has no --allow-net, and the skill needs the network`);
+  }
+
+  // Refuse rather than run something the banner would misdescribe. A sandbox
+  // that silently is not one teaches people to trust the next banner too.
+  const gaps = unenforceable(declaration, available);
+  if (gaps.length && !options.allowUnenforced) {
+    throw new Error(
+      `this Node (${process.version}) cannot enforce ${gaps.join(' or ')}.\n` +
+        'Upgrade to a Node whose permission model covers it, or pass --allow-unenforced\n' +
+        'to run anyway, knowing that limit will not hold.',
+    );
   }
 
   const argv = buildArgs(declaration, options);
