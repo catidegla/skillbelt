@@ -133,7 +133,59 @@ Claude Code
 
 The digest is a sha256 over a sorted listing of `<file sha256>  <path>`, so a rename is caught even when no file content changed. Symbolic links inside a skill are refused rather than followed, since the installer copies recursively and a link can point anywhere on the machine.
 
-What this does not do: it does not review what the scripts contain, restrict which hosts they reach, or sandbox them. Pinning tells you the code is the code that was published. It does not tell you the code is safe.
+Pinning tells you the code is the code that was published. It does not tell you the code is safe, which is what the next part is for.
+
+## Skills declare what they may reach, and run inside it
+
+A skill that ships scripts has to say what those scripts may touch, in its frontmatter:
+
+```yaml
+entry: scripts/check-parity.mjs
+allow-read: project, skill
+allow-write: none
+allow-net: no
+allow-exec: php
+```
+
+`skillbelt run` launches the entry script with exactly that and nothing more, through Node's permission model:
+
+```bash
+skillbelt run i18n-parity
+```
+
+```
+skillbelt: running i18n-parity/scripts/check-parity.mjs with
+  read   project, skill
+  write  nothing
+  net    no
+  exec   php, granted as the whole child process capability
+```
+
+Anything undeclared is denied, so a skill that forgets a key loses the capability rather than keeping it. The scopes are named rather than free paths, `project` being the directory you are working in and `skill` the installed skill itself, so a skill cannot declare its way to your home directory.
+
+The declaration is checked against the code before the skill ships. `validate-skills.mjs` scans the scripts and fails when they use something the manifest does not grant:
+
+```
+skills/i18n-parity reaches the network but declares allow-net: no
+```
+
+### What is enforced, and what is only disclosed
+
+Node's model is what does the enforcing, so the guarantees are its guarantees:
+
+| | |
+| :--- | :--- |
+| filesystem read and write | enforced, scoped to the declared paths |
+| network | enforced, all or nothing, no per-host limit exists |
+| child process | enforced, all or nothing |
+
+That last row is why `allow-exec: php` reads the way it does. The i18n checker shells out to `php` to read PHP locale arrays, and Node has no way to grant php alone, so the skill receives the whole child process capability. The binary list is disclosure that shows up in a diff. It is not a fence, and Node prints its own warning saying as much.
+
+### The honest limit
+
+This binds scripts launched through `skillbelt run`. An agent that reads SKILL.md and types `node scripts/check-parity.mjs` gets no sandbox at all, and an installer cannot prevent that. The skills here document the sandboxed invocation first for that reason.
+
+So the three parts stand differently. Provenance is pinned and enforced. Capabilities are declared, checked against the code, and enforced on the launch path this tool controls. Containment of a script somebody else chooses to run directly is not something this can offer, and nothing here pretends otherwise.
 
 ## CLI
 
@@ -142,13 +194,17 @@ skillbelt list                    show available skills and detected harnesses
 skillbelt add <name...|--all>     install
 skillbelt remove <name...|--all>  uninstall
 skillbelt verify                  check installed skills against their recorded digests
+skillbelt run <name> [-- args]    run a skill's script with only the access it declared
 skillbelt doctor                  every install path and what is present
 
   --harness <a,b>   claude, codex, cursor, gemini, antigravity, or all
                     defaults to whatever is detected
   --project         install into the current project
   --force           install even when a skill does not match its pinned digest
+  --quiet           with run, do not print the capability banner
 ```
+
+`run` needs Node 22.13 or newer, where the permission model is stable. On anything older it refuses rather than running the script unrestricted, since a sandbox that silently is not one is worse than none.
 
 ## Contributing
 

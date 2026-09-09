@@ -10,6 +10,9 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { declarationOf, buildArgs } from '../bin/sandbox.mjs';
+import { detect, reconcile } from '../bin/capabilities.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = join(ROOT, 'skills');
 
@@ -59,6 +62,53 @@ async function filesUnder(dir, prefix = '') {
   return found;
 }
 
+/**
+ * A skill that ships code has to say what that code may reach.
+ *
+ * The declaration is what `skillbelt run` enforces, so a wrong one is not a
+ * documentation bug, it is a permission grant nobody reviewed. The scan that
+ * checks it is a pattern match and can be fooled deliberately, which is why it
+ * only ever errors in the direction of demanding a declaration.
+ */
+async function checkDeclaration(dir, meta, label) {
+  const scriptsDir = join(SKILLS, dir, 'scripts');
+  if (!(await exists(scriptsDir))) return;
+
+  const scripts = (await filesUnder(scriptsDir)).filter((f) => f.relative.endsWith('.mjs') || f.relative.endsWith('.js'));
+  if (!scripts.length) return;
+
+  if (!meta.entry) {
+    errors.push(`${label} ships scripts but declares no "entry", so skillbelt run cannot launch it`);
+  } else if (!(await exists(join(SKILLS, dir, meta.entry)))) {
+    errors.push(`${label} entry "${meta.entry}" does not exist`);
+  }
+
+  for (const key of ['allow-read', 'allow-write', 'allow-net', 'allow-exec']) {
+    if (meta[key] === undefined) errors.push(`${label} ships scripts but does not declare ${key}`);
+  }
+
+  let declaration;
+  try {
+    declaration = declarationOf(meta);
+    // Reject a scope name now rather than at run time, where it would surface
+    // as a failure in front of whoever was trying to use the skill.
+    buildArgs(declaration, { skillDir: SKILLS, projectDir: SKILLS, entry: meta.entry ?? 'x' });
+  } catch (error) {
+    errors.push(`${label} has an unusable declaration: ${error.message}`);
+    return;
+  }
+
+  const detected = { exec: false, net: false, write: false, read: false };
+  for (const script of scripts) {
+    const found = detect(await readFile(script.full, 'utf8'));
+    for (const key of Object.keys(detected)) detected[key] ||= found[key];
+  }
+
+  const { errors: bad, warnings: untidy } = reconcile(detected, declaration);
+  for (const message of bad) errors.push(`${label} ${message}`);
+  for (const message of untidy) warnings.push(`${label} ${message}`);
+}
+
 const entries = await readdir(SKILLS, { withFileTypes: true });
 const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
 
@@ -96,6 +146,8 @@ for (const dir of dirs) {
     continue;
   }
 
+  await checkDeclaration(dir, meta, label);
+
   if (!meta.name) {
     errors.push(`${label} frontmatter is missing "name"`);
   } else {
@@ -116,7 +168,13 @@ for (const dir of dirs) {
     }
   }
 
-  const allowed = new Set(['name', 'description', 'license', 'allowed-tools', 'metadata']);
+  // The allow- keys and entry are skillbelt's own. Harnesses ignore frontmatter
+  // they do not recognise, so they cost nothing in Claude Code or Cursor, but
+  // they are not part of the SKILL.md format and no other tool will honour them.
+  const allowed = new Set([
+    'name', 'description', 'license', 'allowed-tools', 'metadata',
+    'entry', 'allow-read', 'allow-write', 'allow-net', 'allow-exec',
+  ]);
   for (const key of Object.keys(meta)) {
     if (!allowed.has(key)) warnings.push(`${label} has non-standard frontmatter key "${key}", other harnesses may reject it`);
   }

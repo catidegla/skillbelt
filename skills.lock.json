@@ -1,7 +1,7 @@
 {
   "algorithm": "sha256",
   "skills": {
-    "i18n-parity": "720e35a4bbfef0d6721c25b964ae25ad49ed2559cfc3bc395fd3b9d0bf9f3cb7",
+    "i18n-parity": "3a29fcbd6d860246c59791d9d7f537a1dabeba217b91bb520789ac70ef2d2dcd",
     "laravel-security-review": "49034d21111b8a462bae1c9047961ee81b8a1779981fbe1960eb526ad8eb3f05",
     "nextjs-security-review": "d5f621c396fd51911a516c384c8280f907024a3f18309901faeed882aff2372a",
     "secrets-audit": "0bf6bd9dbbbf3ff242965b2cb8827f3ae069d27aec9266516d6d77b9b5474da0"

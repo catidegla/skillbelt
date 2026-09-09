@@ -14,6 +14,7 @@ import { homedir } from 'node:os';
 
 import { digestDirectory, short } from './digest.mjs';
 import { readLock, readReceipts, writeReceipts, LOCK_FILE, RECEIPT_FILE } from './lockfile.mjs';
+import { declarationOf, describe, run as runSandboxed, support } from './sandbox.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS_DIR = join(ROOT, 'skills');
@@ -72,6 +73,8 @@ async function readSkills() {
       name: meta.name ?? entry.name,
       description: meta.description ?? '',
       path: join(SKILLS_DIR, entry.name),
+      entry: meta.entry ?? null,
+      declaration: declarationOf(meta),
       digest,
     });
   }
@@ -255,6 +258,12 @@ async function cmdAdd() {
       await cp(skill.path, dest, { recursive: true, force: true });
       receipts.skills[skill.id] = { digest: skill.digest, installed: new Date().toISOString() };
       console.log(`  ${existed ? c.yellow('updated') : c.green('added  ')} ${skill.id}  ${c.dim(short(skill.digest))}`);
+
+      // Capabilities are worth a line at install time rather than only in the
+      // manifest, because this is the moment somebody is deciding to trust it.
+      if (skill.entry) {
+        for (const line of describe(skill.declaration)) console.log(c.dim(`    ${line}`));
+      }
     }
 
     await writeReceipts(target.dir, receipts);
@@ -382,6 +391,70 @@ async function cmdVerify() {
   console.log('');
 }
 
+/**
+ * Run a skill's entry script with only the access its manifest declared.
+ *
+ * The skill is looked up in the installed copies first and this package
+ * second, so `skillbelt run` from a project uses the version the agent is
+ * actually reading rather than whatever happens to be in this checkout.
+ */
+async function cmdRun() {
+  const id = positional[0];
+  const skills = await readSkills();
+  const skill = skills.find((s) => s.id === id);
+
+  if (!id) {
+    console.error(c.red('Name a skill to run.'));
+    console.error(`Runnable: ${skills.filter((s) => s.entry).map((s) => s.id).join(', ') || 'none'}`);
+    process.exit(1);
+  }
+
+  if (!skill) {
+    console.error(c.red(`No such skill: ${id}`));
+    process.exit(1);
+  }
+
+  if (!skill.entry) {
+    console.error(c.red(`${id} has no entry script, there is nothing to run.`));
+    process.exit(1);
+  }
+
+  // Everything after -- goes to the script untouched, so its own flags cannot
+  // collide with ours.
+  const separator = argv.indexOf('--');
+  const forwarded = separator === -1 ? [] : argv.slice(separator + 1);
+
+  // Prefer an installed copy. If the agent is reading one, that is the code
+  // that matters, and running a different one would make the report a lie.
+  let skillDir = skill.path;
+  for (const target of await resolveTargets().catch(() => [])) {
+    const candidate = join(target.dir, id);
+    if (await exists(join(candidate, skill.entry))) {
+      skillDir = candidate;
+      break;
+    }
+  }
+
+  if (!has('quiet')) {
+    console.error(c.dim(`skillbelt: running ${id}/${skill.entry} with`));
+    for (const line of describe(skill.declaration)) console.error(c.dim(`  ${line}`));
+    console.error('');
+  }
+
+  try {
+    const code = await runSandboxed(skill.declaration, {
+      skillDir,
+      projectDir: process.cwd(),
+      entry: skill.entry,
+      args: forwarded,
+    });
+    process.exit(code);
+  } catch (error) {
+    console.error(c.red(error.message));
+    process.exit(1);
+  }
+}
+
 function usage() {
   console.log(`
 ${c.bold('skillbelt')}  portable agent skills for secure coding and i18n
@@ -390,6 +463,7 @@ ${c.bold('skillbelt')}  portable agent skills for secure coding and i18n
   ${c.bold('add')} <name...|--all      install skills
   ${c.bold('remove')} <name...|--all   uninstall skills
   ${c.bold('verify')}                  check installed skills against their recorded digests
+  ${c.bold('run')} <name> [-- args]    run a skill's script with only the access it declared
   ${c.bold('doctor')}                  show every install path and what is present
 
 Options
@@ -397,10 +471,15 @@ Options
                           defaults to whatever is detected on this machine
   --project               install into the current project instead of your home directory
   --force                 install even when a skill does not match its pinned digest
+  --quiet                 with run, do not print the capability banner
 
 Skills are code that runs on your machine. Every install records the sha256 of
 what was copied, in ${RECEIPT_FILE} beside the skills, and refuses to proceed
 when the source does not match the digests in ${LOCK_FILE}.
+
+${c.bold('run')} enforces the allow- keys in a skill's frontmatter through Node's
+permission model. It only binds scripts launched this way. Running the script
+directly is unrestricted, and an installer cannot prevent that.
 
 Examples
   npx github:catidegla/skillbelt list
@@ -411,7 +490,7 @@ Examples
 `);
 }
 
-const commands = { list: cmdList, add: cmdAdd, remove: cmdRemove, verify: cmdVerify, doctor: cmdDoctor };
+const commands = { list: cmdList, add: cmdAdd, remove: cmdRemove, verify: cmdVerify, run: cmdRun, doctor: cmdDoctor };
 
 if (!command || has('help') || command === 'help') {
   usage();

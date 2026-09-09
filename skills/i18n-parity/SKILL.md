@@ -1,6 +1,11 @@
 ---
 name: i18n-parity
 description: Audit and fix translation files across locales, with a focus on English and French parity. Use when adding or reviewing translations, when locale files drift out of sync, when a placeholder or plural renders wrong, or whenever the user asks about i18n, l10n, localization, translation keys, or pluralization.
+entry: scripts/check-parity.mjs
+allow-read: project, skill
+allow-write: none
+allow-net: no
+allow-exec: php
 ---
 
 # Translation parity
@@ -12,8 +17,12 @@ This skill checks locale files mechanically, then covers the language-specific r
 ## Run the checker first
 
 ```bash
-node scripts/check-parity.mjs
+skillbelt run i18n-parity
 ```
+
+That launches the checker with only what it declared: read access to this project and to the skill's own directory, no write access, no network. It does shell out to `php` to read PHP locale arrays, which is why it asks for the child process capability, and that grant is not limited to php alone because Node cannot express the narrower one.
+
+If skillbelt is not on the path, `node scripts/check-parity.mjs` runs the same checker with no limits at all.
 
 It auto-detects the layout. Supported without configuration:
 

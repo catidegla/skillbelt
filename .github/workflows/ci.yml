@@ -37,6 +37,12 @@ jobs:
       - name: Test the digest
         run: node --test scripts/test-digest.mjs
 
+      # These plant a script that tries the forbidden thing and assert it was
+      # refused, so they fail if Node ever narrows what the permission model
+      # covers rather than letting the flags become decorative.
+      - name: Test the sandbox
+        run: node --test scripts/test-sandbox.mjs
+
       - name: Test the parity checker
         run: node --test scripts/test-parity.mjs
 
@@ -68,6 +74,15 @@ jobs:
             exit 1
           fi
           echo "verify catches a modified skill"
+
+          mkdir -p locales
+          printf '{"a":"A","b":"B"}\n' > locales/en.json
+          printf '{"a":"A"}\n' > locales/fr.json
+          if node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" run i18n-parity --quiet; then
+            echo "the checker should have reported the missing key"
+            exit 1
+          fi
+          echo "sandboxed run works and reports through its exit code"
 
           node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" remove --all --project --harness claude
           test ! -d ".claude/skills/i18n-parity" || { echo "remove did not clean up"; exit 1; }
