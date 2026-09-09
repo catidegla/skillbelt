@@ -101,17 +101,53 @@ It auto-detects Laravel PHP arrays, Laravel JSON, next-intl and react-i18next la
 | Gemini CLI | `~/.gemini/skills` | `.gemini/skills` |
 | Antigravity | not supported | `.agents/skills` |
 
+## Skills are code, so installs are pinned
+
+A skill is not documentation. `SKILL.md` tells the agent what to do and the scripts beside it run on your machine, which makes copying one into five directories a supply chain decision rather than a file copy.
+
+Two records make that checkable.
+
+`skills.lock.json` ships with the package and records the sha256 of every skill as released. Installing compares against it and refuses on a mismatch, because at that point the files on disk are demonstrably not the ones the lock describes:
+
+```
+  secrets-audit does not match its pinned digest
+    expected 0bf6bd9dbbbf, found 5efbb2d5a4ed
+
+If you edited these skills, run npm run lock to repin them.
+If you did not, the files in skills/ are not the ones that shipped.
+```
+
+`.skillbelt.json` is written beside the installed skills and records what was actually put there. That is what `verify` reads, and it answers the question the lock cannot, which is whether anything has touched the copy since you installed it:
+
+```bash
+skillbelt verify --harness all
+```
+
+```
+Claude Code
+  modified i18n-parity
+    installed 720e35a4bbfe, on disk 7bf8cec63b3f
+```
+
+`verify` exits non-zero when something is modified, so it works in CI. A skill that simply has a newer version available is reported as `outdated` instead and does not fail the run.
+
+The digest is a sha256 over a sorted listing of `<file sha256>  <path>`, so a rename is caught even when no file content changed. Symbolic links inside a skill are refused rather than followed, since the installer copies recursively and a link can point anywhere on the machine.
+
+What this does not do: it does not review what the scripts contain, restrict which hosts they reach, or sandbox them. Pinning tells you the code is the code that was published. It does not tell you the code is safe.
+
 ## CLI
 
 ```
 skillbelt list                    show available skills and detected harnesses
 skillbelt add <name...|--all>     install
 skillbelt remove <name...|--all>  uninstall
+skillbelt verify                  check installed skills against their recorded digests
 skillbelt doctor                  every install path and what is present
 
   --harness <a,b>   claude, codex, cursor, gemini, antigravity, or all
                     defaults to whatever is detected
   --project         install into the current project
+  --force           install even when a skill does not match its pinned digest
 ```
 
 ## Contributing

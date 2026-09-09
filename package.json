@@ -1,6 +1,6 @@
 {
   "name": "skillbelt",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Portable agent skills for secure coding and translation parity. Works in Claude Code, Codex, Cursor, Gemini CLI and Antigravity.",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "bin",
     "skills",
     ".claude-plugin",
+    "skills.lock.json",
     "README.md",
     "LICENSE"
   ],
@@ -17,8 +18,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "lock": "node scripts/update-lock.mjs",
     "validate": "node scripts/validate-skills.mjs",
-    "test": "node scripts/validate-skills.mjs && node --test scripts/test-parity.mjs"
+    "test": "node scripts/validate-skills.mjs && node scripts/update-lock.mjs --check && node --test scripts/test-digest.mjs scripts/test-parity.mjs"
   },
   "keywords": [
     "agent-skills",

@@ -46,10 +46,37 @@ function parseFrontmatter(source) {
   return meta;
 }
 
+/**
+ * Every file in a skill, so the line ending rule can reach the scripts too.
+ */
+async function filesUnder(dir, prefix = '') {
+  const found = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) found.push(...(await filesUnder(join(dir, entry.name), relative)));
+    else if (entry.isFile()) found.push({ relative, full: join(dir, entry.name) });
+  }
+  return found;
+}
+
 const entries = await readdir(SKILLS, { withFileTypes: true });
 const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
 
 if (!dirs.length) errors.push('skills/ contains no skill directories');
+
+// CRLF here is not a style question. The digests in skills.lock.json are taken
+// over the file bytes, so one CRLF file makes a lock generated on Windows
+// disagree with the same lock generated on Linux, and the failure surfaces
+// later as a pin mismatch that looks like tampering. .gitattributes keeps the
+// checkout at LF; this catches an editor that wrote CRLF anyway.
+for (const dir of dirs) {
+  for (const file of await filesUnder(join(SKILLS, dir))) {
+    const bytes = await readFile(file.full);
+    if (bytes.includes('\r\n')) {
+      errors.push(`skills/${dir}/${file.relative} has CRLF line endings, which change its digest`);
+    }
+  }
+}
 
 for (const dir of dirs) {
   const skillPath = join(SKILLS, dir);

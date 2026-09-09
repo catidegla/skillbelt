@@ -27,6 +27,16 @@ jobs:
       - name: Validate skills
         run: node scripts/validate-skills.mjs
 
+      # A pin nobody regenerates is worse than no pin, because it trains people
+      # to reach for --force. The digests are only stable across these two
+      # runners because .gitattributes pins the working tree to eol=lf, so this
+      # step also catches anyone removing that line.
+      - name: Skills match their pinned digests
+        run: node scripts/update-lock.mjs --check
+
+      - name: Test the digest
+        run: node --test scripts/test-digest.mjs
+
       - name: Test the parity checker
         run: node --test scripts/test-parity.mjs
 
@@ -47,6 +57,17 @@ jobs:
             test -f "$h/skills/i18n-parity/scripts/check-parity.mjs" || { echo "missing nested script in $h"; exit 1; }
           done
           echo "installed into all four harnesses"
+
+          test -f ".claude/skills/.skillbelt.json" || { echo "no install receipt written"; exit 1; }
+          node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" verify --project --harness claude,codex,cursor,gemini
+          echo "verify passes on a clean install"
+
+          printf '\n// injected\n' >> .claude/skills/i18n-parity/scripts/check-parity.mjs
+          if node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" verify --project --harness claude; then
+            echo "verify did not notice a modified skill"
+            exit 1
+          fi
+          echo "verify catches a modified skill"
 
           node "$GITHUB_WORKSPACE/bin/skillbelt.mjs" remove --all --project --harness claude
           test ! -d ".claude/skills/i18n-parity" || { echo "remove did not clean up"; exit 1; }

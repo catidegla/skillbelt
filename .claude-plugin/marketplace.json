@@ -11,7 +11,7 @@
     {
       "name": "skillbelt",
       "description": "Four skills for reviewing Laravel and Next.js code for security defects, auditing committed secrets including git history, and keeping English and French translation files in parity.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Christ-loisele Atidegla",
         "url": "https://github.com/catidegla"
