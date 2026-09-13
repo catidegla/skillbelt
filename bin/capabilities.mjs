@@ -42,6 +42,39 @@ const SIGNALS = {
   ],
 };
 
+/**
+ * Hosts named outright in the source.
+ *
+ * Only literals, which is the same bargain the rest of this file makes. A host
+ * built at runtime is invisible here, and a skill wanting to hide one has
+ * easier ways than string concatenation, so this is not a fence either. What
+ * it catches is the ordinary case: somebody adds a call to a new API and the
+ * manifest does not mention it.
+ *
+ * localhost and the loopback addresses are dropped because a skill talking to
+ * a service the caller is already running is not reaching out to anybody, and
+ * making people declare it would train them to declare everything.
+ */
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
+
+export function hosts(source) {
+  const clean = stripComments(source);
+  const found = new Set();
+
+  for (const [, host] of clean.matchAll(/\bhttps?:\/\/([A-Za-z0-9.-]+)/g)) {
+    const name = host.toLowerCase().replace(/\.$/, '');
+    if (!LOOPBACK.has(name) && name.includes('.')) found.add(name);
+  }
+
+  // node:http and friends take the host as an option rather than a URL.
+  for (const [, host] of clean.matchAll(/\b(?:host|hostname)\s*:\s*['"]([A-Za-z0-9.-]+)['"]/g)) {
+    const name = host.toLowerCase().replace(/\.$/, '');
+    if (!LOOPBACK.has(name)) found.add(name);
+  }
+
+  return [...found].sort();
+}
+
 /** Which capabilities the source looks like it uses. */
 export function detect(source) {
   const clean = stripComments(source);
@@ -68,6 +101,27 @@ export function reconcile(detected, declaration) {
 
   if (detected.exec && !grantsExec) errors.push('runs a child process but does not declare allow-exec');
   if (detected.net && !declaration.net) errors.push('reaches the network but declares allow-net: no');
+
+  // Only checked when the manifest named hosts. Declaring `allow-net: yes`
+  // stays exactly as permissive as it reads, because a blanket grant that
+  // quietly started failing on an undeclared host would be a trap rather than
+  // a stricter default.
+  if (declaration.hosts?.length && detected.hosts?.length) {
+    const allowed = new Set(declaration.hosts);
+    const strangers = detected.hosts.filter(
+      (host) => !allowed.has(host) && ![...allowed].some((a) => host.endsWith(`.${a}`)),
+    );
+
+    if (strangers.length) {
+      errors.push(`contacts ${strangers.join(', ')}, which allow-net does not list`);
+    }
+
+    const unused = declaration.hosts.filter(
+      (a) => !detected.hosts.some((host) => host === a || host.endsWith(`.${a}`)),
+    );
+
+    if (unused.length) warnings.push(`declares ${unused.join(', ')} under allow-net but no call to them was found`);
+  }
   if (detected.write && !declaration.write.length) errors.push('writes files but does not declare allow-write');
   if (detected.read && !declaration.read.length) errors.push('reads files but does not declare allow-read');
 

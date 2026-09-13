@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { declarationOf, buildArgs } from '../bin/sandbox.mjs';
-import { detect, reconcile } from '../bin/capabilities.mjs';
+import { detect, reconcile, hosts } from '../bin/capabilities.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = join(ROOT, 'skills');
@@ -99,10 +99,14 @@ async function checkDeclaration(dir, meta, label) {
   }
 
   const detected = { exec: false, net: false, write: false, read: false };
+  const seenHosts = new Set();
   for (const script of scripts) {
-    const found = detect(await readFile(script.full, 'utf8'));
+    const source = await readFile(script.full, 'utf8');
+    const found = detect(source);
     for (const key of Object.keys(detected)) detected[key] ||= found[key];
+    for (const host of hosts(source)) seenHosts.add(host);
   }
+  detected.hosts = [...seenHosts].sort();
 
   const { errors: bad, warnings: untidy } = reconcile(detected, declaration);
   for (const message of bad) errors.push(`${label} ${message}`);

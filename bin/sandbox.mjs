@@ -51,10 +51,26 @@ const list = (raw) =>
 export function declarationOf(meta) {
   const read = list(meta['allow-read']);
   const write = list(meta['allow-write']);
-  const net = ['yes', 'true'].includes(String(meta['allow-net'] ?? '').trim().toLowerCase());
   const exec = list(meta['allow-exec']).filter((name) => name !== 'yes');
 
-  return { read, write, net, exec, execAll: ['yes', 'true'].includes(String(meta['allow-exec'] ?? '').trim().toLowerCase()) };
+  // allow-net takes yes, or a list of hosts, and both grant the same thing at
+  // runtime because Node has no per-host flag to grant anything narrower. The
+  // list is worth writing anyway for the same reason the allow-exec list is:
+  // it is disclosure a reviewer can read and a diff can show, and
+  // validate-skills holds the code to it, so a skill cannot start calling a
+  // host nobody agreed to without the manifest changing first.
+  const rawNet = String(meta['allow-net'] ?? '').trim().toLowerCase();
+  const hosts = list(rawNet).filter((host) => host !== 'yes' && host !== 'true');
+  const net = ['yes', 'true'].includes(rawNet) || hosts.length > 0;
+
+  return {
+    read,
+    write,
+    net,
+    hosts,
+    exec,
+    execAll: ['yes', 'true'].includes(String(meta['allow-exec'] ?? '').trim().toLowerCase()),
+  };
 }
 
 /**
@@ -104,7 +120,9 @@ export function describe(declaration, available = support()) {
   lines.push(`read   ${declaration.read.length ? declaration.read.join(', ') : 'nothing'}`);
   lines.push(`write  ${declaration.write.length ? declaration.write.join(', ') : 'nothing'}`);
 
-  if (declaration.net) lines.push('net    yes, unscoped, Node cannot limit it by host');
+  if (declaration.hosts.length) {
+    lines.push(`net    ${declaration.hosts.join(', ')}, declared only, the grant Node makes is unscoped`);
+  } else if (declaration.net) lines.push('net    yes, unscoped, Node cannot limit it by host');
   else if (available.net) lines.push('net    no');
   else lines.push(`net    NOT ENFORCED, this Node (${process.version}) has no --allow-net`);
 

@@ -16,7 +16,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { declarationOf, buildArgs, describe, support, unenforceable, run, REFUSED } from '../bin/sandbox.mjs';
-import { detect, reconcile, stripComments } from '../bin/capabilities.mjs';
+import { detect, reconcile, stripComments, hosts } from '../bin/capabilities.mjs';
 
 const AVAILABLE = support();
 const CAN_ENFORCE = AVAILABLE.permission;
@@ -211,4 +211,75 @@ test('declining to start is reported with its own exit code, not as a script fai
   // stuck on an older runtime can use the tool at all.
   const argv = buildArgs(deniesNet, options);
   assert.ok(!argv.includes('--allow-net'));
+});
+
+/* ------------------------------------------------------- declared hosts */
+
+test('allow-net accepts a host list and still grants what Node can grant', () => {
+  const declaration = declarationOf({ 'allow-net': 'api.stripe.com, registry.npmjs.org' });
+
+  assert.deepEqual(declaration.hosts, ['api.stripe.com', 'registry.npmjs.org']);
+  // The grant has to stay unscoped. Node has no per-host flag, and a list that
+  // silently narrowed nothing while reading as if it did would be the exact
+  // dishonesty the rest of this file avoids.
+  assert.equal(declaration.net, true);
+
+  const argv = buildArgs(declaration, { skillDir: '/s', projectDir: '/p', entry: 'x.mjs' });
+  if (support().net) assert.ok(argv.includes('--allow-net'));
+});
+
+test('yes still means yes, so an existing manifest does not change meaning', () => {
+  const declaration = declarationOf({ 'allow-net': 'yes' });
+  assert.equal(declaration.net, true);
+  assert.deepEqual(declaration.hosts, []);
+});
+
+test('describe does not let a host list read as enforcement', () => {
+  const line = describe(declarationOf({ 'allow-net': 'api.stripe.com' }), support()).find((l) => l.startsWith('net'));
+  assert.match(line, /api\.stripe\.com/);
+  assert.match(line, /declared only/);
+  assert.match(line, /unscoped/);
+});
+
+test('hosts are read off literals, and loopback is not one worth declaring', () => {
+  assert.deepEqual(hosts("await fetch('https://api.stripe.com/v1/charges');"), ['api.stripe.com']);
+  assert.deepEqual(hosts("request({ host: 'registry.npmjs.org' })"), ['registry.npmjs.org']);
+  assert.deepEqual(hosts("fetch('http://localhost:3000/health')"), []);
+  assert.deepEqual(hosts("fetch('http://127.0.0.1:8080')"), []);
+  // A host named only in prose is not a call.
+  assert.deepEqual(hosts('// talks to https://api.stripe.com one day'), []);
+});
+
+test('contacting a host the manifest does not list is an error', () => {
+  const declaration = declarationOf({ 'allow-net': 'api.stripe.com' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: ['api.stripe.com', 'evil.example.com'] };
+
+  const { errors } = reconcile(detected, declaration);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /evil\.example\.com/);
+  assert.doesNotMatch(errors[0], /api\.stripe\.com/);
+});
+
+test('a subdomain of a declared host is covered by it', () => {
+  const declaration = declarationOf({ 'allow-net': 'stripe.com' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: ['api.stripe.com'] };
+  assert.deepEqual(reconcile(detected, declaration).errors, []);
+});
+
+test('a blanket allow-net is not quietly turned into a host check', () => {
+  // Somebody on `allow-net: yes` has declared no hosts on purpose. Failing
+  // their build the day this shipped would punish them for upgrading.
+  const declaration = declarationOf({ 'allow-net': 'yes' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: ['anything.example.com'] };
+  assert.deepEqual(reconcile(detected, declaration).errors, []);
+});
+
+test('a declared host nothing calls is untidy rather than unsafe', () => {
+  const declaration = declarationOf({ 'allow-net': 'api.stripe.com, unused.example.com' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: ['api.stripe.com'] };
+
+  const { errors, warnings } = reconcile(detected, declaration);
+  assert.deepEqual(errors, []);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /unused\.example\.com/);
 });

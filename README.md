@@ -181,6 +181,26 @@ Node's model is what does the enforcing, so the guarantees are its guarantees:
 
 That last row is why `allow-exec: php` reads the way it does. The i18n checker shells out to `php` to read PHP locale arrays, and Node has no way to grant php alone, so the skill receives the whole child process capability. The binary list is disclosure that shows up in a diff. It is not a fence, and Node prints its own warning saying as much.
 
+`allow-net` takes a host list on the same terms:
+
+```yaml
+allow-net: api.stripe.com, registry.npmjs.org
+```
+
+At runtime that grants what `allow-net: yes` grants, because the per-host flag does not exist to grant anything narrower, and `run` says so rather than letting the list read as a limit:
+
+```
+net    api.stripe.com, registry.npmjs.org, declared only, the grant Node makes is unscoped
+```
+
+What the list buys is the review gate. `validate-skills.mjs` reads the hosts named in the scripts and fails when one is missing from the manifest, so a skill cannot start calling somewhere new without the change appearing in a diff first:
+
+```
+skills/some-skill contacts telemetry.example.com, which allow-net does not list
+```
+
+Subdomains of a declared host count as declared. Localhost and the loopback addresses are ignored, since a skill talking to something you are already running has not reached anybody. Only literal hosts are seen, so this catches the ordinary case of a new API call rather than a host assembled at runtime, and `allow-net: yes` keeps meaning exactly what it always did: no host checking at all.
+
 ### The honest limit
 
 This binds scripts launched through `skillbelt run`. An agent that reads SKILL.md and types `node scripts/check-parity.mjs` gets no sandbox at all, and an installer cannot prevent that. The skills here document the sandboxed invocation first for that reason.
