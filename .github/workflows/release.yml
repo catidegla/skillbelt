@@ -1,0 +1,99 @@
+name: Release
+
+# Manual until a trusted publisher exists on npm.
+#
+# The tag trigger is commented out rather than deleted, because it is the
+# thing to turn back on and the reason it is off should be next to it. Until
+# the package has a trusted publisher configured at
+# npmjs.com -> package -> Settings -> Trusted Publisher, the OIDC token below
+# authenticates as nobody and npm answers a publish with 404 rather than 403,
+# to avoid telling an anonymous caller which packages exist. That 404 reads
+# exactly like a missing package and is not one.
+#
+# Turning the tag trigger on before then means every `git tag` fails a
+# workflow and fills somebody's notifications with red, which is what happened
+# the first time.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The tag to publish, for example v0.1.0
+        required: true
+  # push:
+  #   tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      # No registry-url on purpose. Given one, setup-node writes an .npmrc
+      # holding `_authToken=${NODE_AUTH_TOKEN}`, and npm then sends that as the
+      # credential. With no such secret set it sends an empty one, the registry
+      # treats the request as anonymous, and answers a publish with 404 rather
+      # than 401 so as not to tell a stranger which packages exist. The token
+      # exchange below never gets a chance to run, and the 404 reads exactly
+      # like a package name that does not exist.
+      #
+      # The OIDC exchange landed in npm 11.5.1 and Node 22 ships 10.x, so the
+      # bundled npm silently has no idea trusted publishing exists.
+      - name: An npm that can exchange the OIDC token
+        run: npm install --global npm@latest
+
+      # Publishing a broken release is worse than publishing late, and a
+      # version on npm cannot be taken back cleanly.
+      - name: Test before anything leaves this machine
+        run: npm test
+
+      - name: The tag and the manifest have to agree
+        id: version
+        shell: bash
+        run: |
+          ref="${{ inputs.ref || github.ref_name }}"
+          tag="${ref#v}"
+          manifest=$(node -p "require('./package.json').version")
+
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag does not match package.json $manifest"
+            exit 1
+          fi
+
+          name=$(node -p "require('./package.json').name")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$manifest" >> "$GITHUB_OUTPUT"
+
+      # A release workflow that tries to republish an existing version fails
+      # every time it is re-run, which teaches people that red is normal here.
+      # Already published is a finished job, not an error.
+      - name: Skip a version that is already on the registry
+        id: exists
+        shell: bash
+        run: |
+          name="${{ steps.version.outputs.name }}"
+          version="${{ steps.version.outputs.version }}"
+
+          if npm view "$name@$version" version --loglevel=error >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is already published, nothing to do"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --provenance records which workflow, in which repository, at which
+      # commit built this tarball, and npm shows it as a verified badge. It
+      # needs the OIDC token above, so it is something a laptop cannot produce.
+      - name: Publish
+        if: steps.exists.outputs.already == 'false'
+        run: npm publish --provenance --access public
