@@ -16,7 +16,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { declarationOf, buildArgs, describe, support, unenforceable, run, REFUSED } from '../bin/sandbox.mjs';
-import { detect, reconcile, stripComments, hosts } from '../bin/capabilities.mjs';
+import { detect, reconcile, stripComments, hosts, dynamicTarget } from '../bin/capabilities.mjs';
 
 const AVAILABLE = support();
 const CAN_ENFORCE = AVAILABLE.permission;
@@ -282,4 +282,31 @@ test('a declared host nothing calls is untidy rather than unsafe', () => {
   assert.deepEqual(errors, []);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /unused\.example\.com/);
+});
+
+test('a target the scan cannot read fails the host list rather than passing it', () => {
+  // The hole worth closing. A declared list is a claim about where the traffic
+  // goes, so a computed URL does not make the claim unverified, it makes it
+  // false, and silence here is the worst of the three outcomes.
+  assert.equal(dynamicTarget('const r = await fetch(process.env.API_URL);'), true);
+
+  const declaration = declarationOf({ 'allow-net': 'api.stripe.com' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: [], dynamicTarget: true };
+
+  const { errors } = reconcile(detected, declaration);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /proves nothing/);
+});
+
+test('a literal target is not mistaken for a computed one', () => {
+  assert.equal(dynamicTarget("await fetch('https://api.stripe.com/v1/charges');"), false);
+  // A template that carries the scheme names its host and only varies the path.
+  assert.equal(dynamicTarget('await fetch(`https://api.stripe.com/v1/${id}`);'), false);
+  assert.equal(dynamicTarget('const x = 1;'), false);
+});
+
+test('a blanket allow-net is still not turned into a dynamic-target check', () => {
+  const declaration = declarationOf({ 'allow-net': 'yes' });
+  const detected = { exec: false, net: true, write: false, read: false, hosts: [], dynamicTarget: true };
+  assert.deepEqual(reconcile(detected, declaration).errors, []);
 });

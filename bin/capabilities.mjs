@@ -75,6 +75,35 @@ export function hosts(source) {
   return [...found].sort();
 }
 
+/**
+ * Whether the source reaches the network somewhere the host cannot be read.
+ *
+ * A URL out of an environment variable, off a config file, or assembled from
+ * parts is invisible to the scan above, and a declared host list that quietly
+ * passes such a script is worse than no list at all: it reads as an answer to
+ * the question "where does this go" when nobody has answered it.
+ *
+ * A template literal that begins with the scheme is not dynamic for this
+ * purpose. `https://api.example.com/${id}` names its host perfectly well and
+ * only varies the path.
+ */
+export function dynamicTarget(source) {
+  const clean = stripComments(source);
+  const calls = /\b(?:fetch|request|get|post|put|patch|head)\s*\(\s*([^)]{0,40})/g;
+
+  for (const [, head] of clean.matchAll(calls)) {
+    const arg = head.trim();
+    if (arg === '' || arg.startsWith('{')) continue;
+    // A literal target, quoted or templated, names its host.
+    if (/^['"`]\s*https?:\/\//.test(arg)) continue;
+    // A bare path against a base the caller supplies is still not a host.
+    if (/^['"`]/.test(arg)) continue;
+    return true;
+  }
+
+  return false;
+}
+
 /** Which capabilities the source looks like it uses. */
 export function detect(source) {
   const clean = stripComments(source);
@@ -106,6 +135,15 @@ export function reconcile(detected, declaration) {
   // stays exactly as permissive as it reads, because a blanket grant that
   // quietly started failing on an undeclared host would be a trap rather than
   // a stricter default.
+  // Declaring hosts is a claim about where the traffic goes, so a target the
+  // scan cannot read makes the claim uncheckable and the list has to fail
+  // rather than sit there looking satisfied. This is the one place the scan
+  // fails closed, and it can: the fix is to use a literal, or to drop back to
+  // `allow-net: yes` and say plainly that the destination is not fixed.
+  if (declaration.hosts?.length && detected.dynamicTarget) {
+    errors.push('builds a request target the manifest cannot be checked against, so the allow-net list proves nothing. use a literal host, or declare allow-net: yes');
+  }
+
   if (declaration.hosts?.length && detected.hosts?.length) {
     const allowed = new Set(declaration.hosts);
     const strangers = detected.hosts.filter(

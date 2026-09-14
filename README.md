@@ -199,6 +199,14 @@ What the list buys is the review gate. `validate-skills.mjs` reads the hosts nam
 skills/some-skill contacts telemetry.example.com, which allow-net does not list
 ```
 
+A target the scan cannot read is an error rather than a pass. `fetch(process.env.API_URL)` under a host list fails, because the list is a claim about where the traffic goes and a computed URL leaves that claim unchecked while looking satisfied:
+
+```
+skills/some-skill builds a request target the manifest cannot be checked against, so the allow-net list proves nothing
+```
+
+The fix is a literal host, or `allow-net: yes` and an honest statement that the destination is not fixed.
+
 Subdomains of a declared host count as declared. Localhost and the loopback addresses are ignored, since a skill talking to something you are already running has not reached anybody. Only literal hosts are seen, so this catches the ordinary case of a new API call rather than a host assembled at runtime, and `allow-net: yes` keeps meaning exactly what it always did: no host checking at all.
 
 ### The honest limit

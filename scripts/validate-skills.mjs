@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { declarationOf, buildArgs } from '../bin/sandbox.mjs';
-import { detect, reconcile, hosts } from '../bin/capabilities.mjs';
+import { detect, reconcile, hosts, dynamicTarget } from '../bin/capabilities.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = join(ROOT, 'skills');
@@ -105,6 +105,7 @@ async function checkDeclaration(dir, meta, label) {
     const found = detect(source);
     for (const key of Object.keys(detected)) detected[key] ||= found[key];
     for (const host of hosts(source)) seenHosts.add(host);
+    detected.dynamicTarget ||= dynamicTarget(source);
   }
   detected.hosts = [...seenHosts].sort();
 
