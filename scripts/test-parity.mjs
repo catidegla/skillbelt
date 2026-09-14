@@ -115,3 +115,56 @@ test('ICU plural syntax is not compared as pipe branches', async (t) => {
   const { report } = await check(dir);
   assert.deepEqual(report.locales.fr.pluralMismatch, [], 'ICU branches differ by design between languages');
 });
+
+/**
+ * The unsandboxed spawn refusal.
+ *
+ * `allow-exec: php` is only enforced when skillbelt run starts the script under
+ * Node's permission model. Run directly, the grant is unbounded and nobody
+ * reviewed it, so the spawn fails closed rather than printing a warning and
+ * carrying on. The distinction matters because a report built without php is
+ * not a smaller report, it is a wrong one: every key in a PHP locale file
+ * reads as missing.
+ */
+test('reading a PHP locale unsandboxed is refused rather than warned about', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'parity-exec-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  await mkdir(join(dir, 'lang', 'en'), { recursive: true });
+  await writeFile(join(dir, 'lang', 'en', 'm.php'), '<?php\nreturn ["a" => "A"];\n');
+
+  const result = await run(process.execPath, [CHECKER, '--dir', join(dir, 'lang')], { cwd: dir })
+    .then(() => ({ code: 0, stderr: '' }), (error) => ({ code: error.code, stderr: error.stderr }));
+
+  assert.equal(result.code, 3, 'refusing to start is exit 3, not the 1 that means problems were found');
+  assert.match(result.stderr, /Refused to run php/);
+  assert.match(result.stderr, /skillbelt run i18n-parity/);
+});
+
+test('the refusal can be overridden deliberately, and says how', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'parity-optin-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  await mkdir(join(dir, 'lang', 'en'), { recursive: true });
+  await writeFile(join(dir, 'lang', 'en', 'm.php'), '<?php\nreturn ["a" => "A"];\n');
+
+  const env = { ...process.env, SKILLBELT_ALLOW_UNSANDBOXED_EXEC: '1' };
+  const result = await run(process.execPath, [CHECKER, '--dir', join(dir, 'lang'), '--json'], { cwd: dir, env })
+    .then((r) => r.stdout, (error) => error.stdout);
+
+  assert.doesNotMatch(String(result), /unsandboxed_exec_refused/);
+});
+
+test('a JSON-only project still runs directly, which is the documented path', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'parity-json-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  await mkdir(join(dir, 'lang'), { recursive: true });
+  await writeFile(join(dir, 'lang', 'en.json'), JSON.stringify({ a: 'A' }));
+  await writeFile(join(dir, 'lang', 'fr.json'), JSON.stringify({ a: 'A' }));
+
+  const out = await run(process.execPath, [CHECKER, '--dir', join(dir, 'lang'), '--json'], { cwd: dir })
+    .then((r) => r.stdout, (error) => error.stdout);
+
+  assert.doesNotMatch(String(out), /unsandboxed_exec_refused/);
+});

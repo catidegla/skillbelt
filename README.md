@@ -209,11 +209,33 @@ The fix is a literal host, or `allow-net: yes` and an honest statement that the 
 
 Subdomains of a declared host count as declared. Localhost and the loopback addresses are ignored, since a skill talking to something you are already running has not reached anybody. Only literal hosts are seen, so this catches the ordinary case of a new API call rather than a host assembled at runtime, and `allow-net: yes` keeps meaning exactly what it always did: no host checking at all.
 
-### The honest limit
+### The honest limit, and the half of it that is fixable
 
-This binds scripts launched through `skillbelt run`. An agent that reads SKILL.md and types `node scripts/check-parity.mjs` gets no sandbox at all, and an installer cannot prevent that. The skills here document the sandboxed invocation first for that reason.
+This binds scripts launched through `skillbelt run`. An agent that reads SKILL.md and types `node scripts/check-parity.mjs` gets no sandbox at all, and an installer cannot prevent that.
 
-So the three parts stand differently. Provenance is pinned and enforced. Capabilities are declared, checked against the code, and enforced on the launch path this tool controls. Containment of a script somebody else chooses to run directly is not something this can offer, and nothing here pretends otherwise.
+For a long time the answer here was a paragraph telling you so. A paragraph is documentation, not a control, so the part that can be a control now is one.
+
+A script can tell whether anything is enforcing its manifest. `process.permission` exists only when Node was started with `--permission`, which is how `skillbelt run` starts it, and is `undefined` otherwise. So a skill that declares `allow-exec` checks before it spawns, and refuses:
+
+```
+Refused to run php on 2 locale file(s).
+
+This skill declares allow-exec: php, and that declaration is only enforced when
+skillbelt run starts it under the Node permission model. Started directly there
+is no limit on what it may spawn, so the grant is real and nobody reviewed it.
+
+  skillbelt run i18n-parity
+
+To run it unsandboxed anyway, knowing the child process capability is unbounded:
+
+  SKILLBELT_ALLOW_UNSANDBOXED_EXEC=1 node check-parity.mjs
+```
+
+It exits **3**, the same code `run` uses when it declines to start, because both mean "I would not do this" rather than "I looked and found problems".
+
+Two things about the shape of that. It fires at the spawn, not at startup, so a project with only JSON locale files still runs directly exactly as documented: the refusal costs you nothing you were not already paying for. And it refuses rather than warning and continuing, because a parity report produced without `php` is not a smaller report, it is a wrong one, with every key in a PHP locale file reading as missing.
+
+What is still not fixable: a skill that declares no capabilities can be run directly all day and there is nothing to refuse, and any script can be copied out of the directory and edited. Provenance is pinned and enforced. Capabilities are declared, checked against the code, enforced on the launch path this tool controls, and now fail closed on the one path it does not. Containment of an arbitrary script somebody chooses to run is still not something an installer can offer.
 
 ## CLI
 

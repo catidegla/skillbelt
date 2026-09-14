@@ -25,6 +25,22 @@ import { join, extname, basename } from 'node:path';
 
 const run = promisify(execFile);
 
+/**
+ * Whether anything is actually enforcing what the manifest declared.
+ *
+ * process.permission exists only when Node was started with --permission,
+ * which is how `skillbelt run` launches this. Started with a plain
+ * `node check-parity.mjs` it is undefined, and the `allow-exec: php` in the
+ * frontmatter was never applied to anything: the script has the whole child
+ * process capability and no reviewer ever agreed to it.
+ *
+ * So the spawn fails closed rather than warning. A warning is documentation.
+ * This is a decision, and it leaves an exit code behind.
+ */
+const SANDBOXED = process.permission !== undefined;
+const EXEC_OPT_IN = process.env.SKILLBELT_ALLOW_UNSANDBOXED_EXEC === '1';
+let refusedPhpFiles = 0;
+
 const args = process.argv.slice(2);
 const flag = (name, fallback = null) => {
   const i = args.indexOf(`--${name}`);
@@ -58,6 +74,11 @@ function flatten(value, prefix = '', out = {}) {
 
 /** PHP arrays are read by php itself rather than by a parser we would have to maintain. */
 async function readPhpFile(path) {
+  if (!SANDBOXED && !EXEC_OPT_IN) {
+    refusedPhpFiles += 1;
+    return null;
+  }
+
   try {
     const { stdout } = await run('php', ['-r', `echo json_encode(require ${JSON.stringify(path)});`], {
       maxBuffer: 32 * 1024 * 1024,
@@ -204,6 +225,38 @@ async function main() {
       untranslated,
       blocking,
     };
+  }
+
+  // Before any report, because a report built without php is not a smaller
+  // report, it is a wrong one: every key in a PHP locale file would read as
+  // missing. Saying nothing and printing it anyway is the silent failure the
+  // refusal exists to avoid.
+  if (refusedPhpFiles > 0) {
+    const detail = {
+      refused: refusedPhpFiles,
+      reason: 'php is needed to read PHP locale files, and nothing is enforcing allow-exec on this process',
+      fix: 'run through: skillbelt run i18n-parity',
+      override: 'SKILLBELT_ALLOW_UNSANDBOXED_EXEC=1',
+    };
+
+    if (AS_JSON) {
+      console.log(JSON.stringify({ error: 'unsandboxed_exec_refused', ...detail }, null, 2));
+    } else {
+      console.error(`Refused to run php on ${refusedPhpFiles} locale file(s).
+
+This skill declares allow-exec: php, and that declaration is only enforced when
+skillbelt run starts it under the Node permission model. Started directly there
+is no limit on what it may spawn, so the grant is real and nobody reviewed it.
+
+  skillbelt run i18n-parity
+
+To run it unsandboxed anyway, knowing the child process capability is unbounded:
+
+  SKILLBELT_ALLOW_UNSANDBOXED_EXEC=1 node check-parity.mjs
+`);
+    }
+
+    process.exit(3);
   }
 
   if (AS_JSON) {
