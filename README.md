@@ -235,6 +235,16 @@ It exits **3**, the same code `run` uses when it declines to start, because both
 
 Two things about the shape of that. It fires at the spawn, not at startup, so a project with only JSON locale files still runs directly exactly as documented: the refusal costs you nothing you were not already paying for. And it refuses rather than warning and continuing, because a parity report produced without `php` is not a smaller report, it is a wrong one, with every key in a PHP locale file reading as missing.
 
+That refusal is not left to whoever writes the next skill to remember. `validate-skills.mjs` fails any skill that spawns a child process under a declared `allow-exec` without consulting `process.permission` first:
+
+```
+skills/some-skill spawns a child process without checking process.permission
+first, so run directly the allow-exec it declares is unenforced and nothing
+refuses
+```
+
+A skill that declares `allow-exec` and never spawns is untidy rather than unsafe, and stays a warning. The rule only reaches the case where the grant is both declared and used, which is the one where forgetting costs something.
+
 What is still not fixable: a skill that declares no capabilities can be run directly all day and there is nothing to refuse, and any script can be copied out of the directory and edited. Provenance is pinned and enforced. Capabilities are declared, checked against the code, enforced on the launch path this tool controls, and now fail closed on the one path it does not. Containment of an arbitrary script somebody chooses to run is still not something an installer can offer.
 
 ## CLI
@@ -268,7 +278,7 @@ That is the whole reason the check exists. A sandbox that silently is not one is
 
 ## Contributing
 
-New skills are welcome. `node scripts/validate-skills.mjs` enforces the rules: frontmatter `name` matching the directory, a `description` that says *when* to use the skill rather than only what it is, and every `references/` or `scripts/` path mentioned in the body actually existing.
+New skills are welcome. `node scripts/validate-skills.mjs` enforces the rules: frontmatter `name` matching the directory, a `description` that says *when* to use the skill rather than only what it is, every `references/` or `scripts/` path mentioned in the body actually existing, and a `process.permission` check in front of any spawn your skill declares `allow-exec` for.
 
 That description rule matters more than it looks. It is the only text an agent sees when deciding whether to load a skill, so "use when reviewing a diff, a pull request, or a controller" pulls its weight and "a skill for Laravel security" does not.
 

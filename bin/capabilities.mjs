@@ -104,6 +104,29 @@ export function dynamicTarget(source) {
   return false;
 }
 
+/**
+ * Whether the source refuses to spawn when nothing is enforcing its manifest.
+ *
+ * `allow-exec` is the one grant Node cannot narrow: a skill that declares
+ * `allow-exec: php` receives the whole child process capability, and only
+ * while `skillbelt run` is the thing that started it. Run directly the
+ * declaration is inert, the grant is unbounded, and the manifest reads exactly
+ * the same. `process.permission` is how a script tells the difference, since
+ * it exists only under `--permission`.
+ *
+ * So a skill that shells out has to consult it. Otherwise the refusal is a
+ * convention that held for as long as somebody remembered it, which is the
+ * same failure as documenting the limit in a README and calling it a control.
+ *
+ * Presence of the reference is all this checks. A script can reference it in a
+ * branch that never runs, exactly as it can hide a host behind string
+ * concatenation, and the file says elsewhere why that is the bargain: this
+ * catches the skill that forgot, not the skill that lied.
+ */
+export function guardsExec(source) {
+  return stripComments(source).includes('process.permission');
+}
+
 /** Which capabilities the source looks like it uses. */
 export function detect(source) {
   const clean = stripComments(source);
@@ -129,6 +152,14 @@ export function reconcile(detected, declaration) {
   const grantsExec = declaration.exec.length > 0 || declaration.execAll;
 
   if (detected.exec && !grantsExec) errors.push('runs a child process but does not declare allow-exec');
+
+  // The declared-and-used case, which is the one the other rule never reaches.
+  // Declaring allow-exec is not a limit Node can apply narrowly, so the only
+  // thing standing between a direct `node scripts/x.mjs` and an unbounded
+  // spawn is the script checking for itself.
+  if (detected.exec && grantsExec && !detected.execGuard) {
+    errors.push('spawns a child process without checking process.permission first, so run directly the allow-exec it declares is unenforced and nothing refuses. read the flag and exit rather than spawning');
+  }
   if (detected.net && !declaration.net) errors.push('reaches the network but declares allow-net: no');
 
   // Only checked when the manifest named hosts. Declaring `allow-net: yes`

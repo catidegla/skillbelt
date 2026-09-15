@@ -16,7 +16,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { declarationOf, buildArgs, describe, support, unenforceable, run, REFUSED } from '../bin/sandbox.mjs';
-import { detect, reconcile, stripComments, hosts, dynamicTarget } from '../bin/capabilities.mjs';
+import { detect, reconcile, stripComments, hosts, dynamicTarget, guardsExec } from '../bin/capabilities.mjs';
 
 const AVAILABLE = support();
 const CAN_ENFORCE = AVAILABLE.permission;
@@ -309,4 +309,54 @@ test('a blanket allow-net is still not turned into a dynamic-target check', () =
   const declaration = declarationOf({ 'allow-net': 'yes' });
   const detected = { exec: false, net: true, write: false, read: false, hosts: [], dynamicTarget: true };
   assert.deepEqual(reconcile(detected, declaration).errors, []);
+});
+
+/* ------------------------------------------- the unenforced allow-exec grant */
+
+test('a declared spawn with no permission check is an error, not a warning', () => {
+  // The other exec rule only catches an undeclared spawn. This is the declared
+  // one, where the manifest reads correctly and the grant is still unbounded
+  // the moment anything other than `skillbelt run` starts the script.
+  const declaration = declarationOf({ 'allow-read': 'project', 'allow-exec': 'php' });
+  const source = "import { execFile } from 'node:child_process';\nexecFile('php', ['-r', 'echo 1;']);";
+
+  const detected = { ...detect(source), execGuard: guardsExec(source) };
+  const { errors } = reconcile(detected, declaration);
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /process\.permission/);
+});
+
+test('consulting process.permission satisfies it', () => {
+  const declaration = declarationOf({ 'allow-read': 'project', 'allow-exec': 'php' });
+  const source = [
+    "import { execFile } from 'node:child_process';",
+    'const SANDBOXED = process.permission !== undefined;',
+    'if (!SANDBOXED) process.exit(3);',
+    "execFile('php', ['-r', 'echo 1;']);",
+  ].join('\n');
+
+  const detected = { ...detect(source), execGuard: guardsExec(source) };
+  assert.deepEqual(reconcile(detected, declaration).errors, []);
+});
+
+test('the guard is not demanded of a skill that never spawns', () => {
+  // Declaring allow-exec and not using it is already untidy rather than
+  // unsafe. Demanding a guard around a spawn that does not exist would turn
+  // that warning into a wall for no gain.
+  const declaration = declarationOf({ 'allow-read': 'project', 'allow-exec': 'php' });
+  const detected = { exec: false, net: false, write: false, read: true, execGuard: false };
+
+  assert.deepEqual(reconcile(detected, declaration).errors, []);
+});
+
+test('a mention of process.permission inside a comment does not count', () => {
+  // Same bargain as the rest of the scan: prose is free, code is not.
+  const source = [
+    "import { execFile } from 'node:child_process';",
+    '// process.permission would tell us, but we never ask',
+    "execFile('php', []);",
+  ].join('\n');
+
+  assert.equal(guardsExec(source), false);
 });
